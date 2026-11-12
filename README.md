@@ -5,7 +5,7 @@ X.509, PEM, PKCS#8, PKCS#12, CMS/PKCS#7, OCSP, TSP, CMP, SCEP, JOSE (JWS, JWE,
 JWT, JWK), COSE, WebAuthn, OpenSSH, ASN.1/DER, CBOR - read and write.
 
 [![npm](https://img.shields.io/npm/v/cryptographic-formats.svg)](https://www.npmjs.com/package/cryptographic-formats)
-[![license: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![license: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 ![dependencies: 0](https://img.shields.io/badge/dependencies-0-brightgreen.svg)
 ![node: >=18](https://img.shields.io/badge/node-%3E%3D18-blue.svg)
 
@@ -1030,4 +1030,4 @@ listed in the release notes. Error `code`s are treated as API.
 
 ## License
 
-[MIT](LICENSE)
+[Apache-2.0](LICENSE)
