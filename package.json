@@ -1,0 +1,298 @@
+{
+  "name": "cryptographic-formats",
+  "version": "0.1.0",
+  "description": "Strict parsing and building of cryptographic file formats: X.509, PEM, PKCS#8, PKCS#12, CMS/PKCS#7, OCSP, TSP, CMP, JOSE, COSE, WebAuthn, OpenSSH, ASN.1/DER, CBOR. Zero dependencies. Performs no cryptography.",
+  "type": "module",
+  "main": "index.js",
+  "types": "types/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./types/index.d.ts",
+      "default": "./index.js"
+    },
+    "./der": {
+      "types": "./types/der_reader.d.ts",
+      "default": "./src/der_reader.js"
+    },
+    "./der-writer": {
+      "types": "./types/der_writer.d.ts",
+      "default": "./src/der_writer.js"
+    },
+    "./oid": {
+      "types": "./types/oid.d.ts",
+      "default": "./src/oid.js"
+    },
+    "./pem": {
+      "types": "./types/pem.d.ts",
+      "default": "./src/pem.js"
+    },
+    "./spki": {
+      "types": "./types/spki.d.ts",
+      "default": "./src/spki.js"
+    },
+    "./pkcs8": {
+      "types": "./types/pkcs8.d.ts",
+      "default": "./src/pkcs8.js"
+    },
+    "./jwk": {
+      "types": "./types/jwk.d.ts",
+      "default": "./src/jwk.js"
+    },
+    "./json": {
+      "types": "./types/json.d.ts",
+      "default": "./src/json.js"
+    },
+    "./cbor": {
+      "types": "./types/cbor_reader.d.ts",
+      "default": "./src/cbor_reader.js"
+    },
+    "./cbor-writer": {
+      "types": "./types/cbor_writer.d.ts",
+      "default": "./src/cbor_writer.js"
+    },
+    "./cose": {
+      "types": "./types/cose.d.ts",
+      "default": "./src/cose.js"
+    },
+    "./x509": {
+      "types": "./types/x509.d.ts",
+      "default": "./src/x509.js"
+    },
+    "./base": {
+      "types": "./types/base.d.ts",
+      "default": "./src/base.js"
+    },
+    "./bech32": {
+      "types": "./types/bech32.d.ts",
+      "default": "./src/bech32.js"
+    },
+    "./pbes2": {
+      "types": "./types/pbes2.d.ts",
+      "default": "./src/pbes2.js"
+    },
+    "./ssh": {
+      "types": "./types/ssh.d.ts",
+      "default": "./src/ssh.js"
+    },
+    "./openpgp": {
+      "types": "./types/openpgp.d.ts",
+      "default": "./src/openpgp.js"
+    },
+    "./openpgp-build": {
+      "types": "./types/openpgp_build.d.ts",
+      "default": "./src/openpgp_build.js"
+    },
+    "./csr": {
+      "types": "./types/csr.d.ts",
+      "default": "./src/csr.js"
+    },
+    "./crl": {
+      "types": "./types/crl.d.ts",
+      "default": "./src/crl.js"
+    },
+    "./ocsp": {
+      "types": "./types/ocsp.d.ts",
+      "default": "./src/ocsp.js"
+    },
+    "./ber": {
+      "types": "./types/ber_reader.d.ts",
+      "default": "./src/ber_reader.js"
+    },
+    "./pkcs12": {
+      "types": "./types/pkcs12.d.ts",
+      "default": "./src/pkcs12.js"
+    },
+    "./jws": {
+      "types": "./types/jws.d.ts",
+      "default": "./src/jws.js"
+    },
+    "./fields": {
+      "types": "./types/fields.d.ts",
+      "default": "./src/fields.js"
+    },
+    "./cms": {
+      "types": "./types/cms.d.ts",
+      "default": "./src/cms.js"
+    },
+    "./tsp": {
+      "types": "./types/tsp.d.ts",
+      "default": "./src/tsp.js"
+    },
+    "./webauthn": {
+      "types": "./types/webauthn.d.ts",
+      "default": "./src/webauthn.js"
+    },
+    "./jwe": {
+      "types": "./types/jwe.d.ts",
+      "default": "./src/jwe.js"
+    },
+    "./multiformats": {
+      "types": "./types/multiformats.d.ts",
+      "default": "./src/multiformats.js"
+    },
+    "./params": {
+      "types": "./types/params.d.ts",
+      "default": "./src/params.js"
+    },
+    "./smime": {
+      "types": "./types/smime.d.ts",
+      "default": "./src/smime.js"
+    },
+    "./cms-enveloped": {
+      "types": "./types/cms_enveloped.d.ts",
+      "default": "./src/cms_enveloped.js"
+    },
+    "./saml": {
+      "types": "./types/saml.d.ts",
+      "default": "./src/saml.js"
+    },
+    "./attrcert": {
+      "types": "./types/attrcert.d.ts",
+      "default": "./src/attrcert.js"
+    },
+    "./crmf": {
+      "types": "./types/crmf.d.ts",
+      "default": "./src/crmf.js"
+    },
+    "./cmp": {
+      "types": "./types/cmp.d.ts",
+      "default": "./src/cmp.js"
+    },
+    "./sct": {
+      "types": "./types/sct.d.ts",
+      "default": "./src/sct.js"
+    },
+    "./signature": {
+      "types": "./types/signature.d.ts",
+      "default": "./src/signature.js"
+    },
+    "./x509-build": {
+      "types": "./types/x509_build.d.ts",
+      "default": "./src/x509_build.js"
+    },
+    "./csr-build": {
+      "types": "./types/csr_build.d.ts",
+      "default": "./src/csr_build.js"
+    },
+    "./cms-build": {
+      "types": "./types/cms_build.d.ts",
+      "default": "./src/cms_build.js"
+    },
+    "./crl-build": {
+      "types": "./types/crl_build.d.ts",
+      "default": "./src/crl_build.js"
+    },
+    "./attrcert-build": {
+      "types": "./types/attrcert_build.d.ts",
+      "default": "./src/attrcert_build.js"
+    },
+    "./crmf-build": {
+      "types": "./types/crmf_build.d.ts",
+      "default": "./src/crmf_build.js"
+    },
+    "./cmp-build": {
+      "types": "./types/cmp_build.d.ts",
+      "default": "./src/cmp_build.js"
+    },
+    "./scep": {
+      "types": "./types/scep.d.ts",
+      "default": "./src/scep.js"
+    },
+    "./scep-build": {
+      "types": "./types/scep_build.d.ts",
+      "default": "./src/scep_build.js"
+    },
+    "./fido-mds": {
+      "types": "./types/fido_mds.d.ts",
+      "default": "./src/fido_mds.js"
+    },
+    "./jwt": {
+      "types": "./types/jwt.d.ts",
+      "default": "./src/jwt.js"
+    },
+    "./sd-jwt": {
+      "types": "./types/sd_jwt.d.ts",
+      "default": "./src/sd_jwt.js"
+    },
+    "./cwt": {
+      "types": "./types/cwt.d.ts",
+      "default": "./src/cwt.js"
+    },
+    "./algorithm": {
+      "types": "./types/algorithm.d.ts",
+      "default": "./src/algorithm.js"
+    },
+    "./ocsp-build": {
+      "types": "./types/ocsp_build.d.ts",
+      "default": "./src/ocsp_build.js"
+    },
+    "./tsp-build": {
+      "types": "./types/tsp_build.d.ts",
+      "default": "./src/tsp_build.js"
+    },
+    "./cms-enveloped-build": {
+      "types": "./types/cms_enveloped_build.d.ts",
+      "default": "./src/cms_enveloped_build.js"
+    },
+    "./pkcs12-build": {
+      "types": "./types/pkcs12_build.d.ts",
+      "default": "./src/pkcs12_build.js"
+    },
+    "./xml": {
+      "types": "./types/xml_reader.d.ts",
+      "default": "./src/xml_reader.js"
+    }
+  },
+  "sideEffects": false,
+  "keywords": [
+    "asn1",
+    "der",
+    "x509",
+    "pkcs",
+    "cms",
+    "jose",
+    "cbor",
+    "cose",
+    "webauthn",
+    "certificate",
+    "pem",
+    "crl",
+    "ocsp",
+    "smime",
+    "saml",
+    "cmp",
+    "scep",
+    "fido",
+    "jwt",
+    "tsp",
+    "pkcs12",
+    "openssh",
+    "asn.1",
+    "pkcs7",
+    "pkcs8",
+    "x.509",
+    "jwk",
+    "jws",
+    "jwe",
+    "csr",
+    "openssl",
+    "parser",
+    "der-encoding",
+    "crmf"
+  ],
+  "license": "Apache-2.0",
+  "files": [
+    "index.js",
+    "types/",
+    "src/",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.5",
+    "typescript": "^7.0.2"
+  }
+}
