@@ -1,10 +1,188 @@
 {
   "name": "cryptographic-formats",
   "version": "0.1.0",
-  "description": "Strict parsing and building of cryptographic file formats: X.509, PEM, PKCS#8, PKCS#12, CMS/PKCS#7, OCSP, TSP, CMP, JOSE, COSE, WebAuthn, OpenSSH, ASN.1/DER, CBOR. Zero dependencies. Performs no cryptography.",
-  "type": "module",
+  "description": "Strict parsing and building of cryptographic file formats: X.509, PEM, PKCS#8, PKCS#12, CMS/PKCS#7, OCSP, TSP, CMP, SCEP, JOSE, COSE, WebAuthn, FIDO MDS, OpenSSH, OpenPGP, ASN.1/DER, CBOR. Zero dependencies. Performs no cryptography.",
   "main": "index.js",
+  "type": "module",
   "types": "types/index.d.ts",
+  "typesVersions": {
+    "*": {
+      "der": [
+        "types/der_reader.d.ts"
+      ],
+      "der-writer": [
+        "types/der_writer.d.ts"
+      ],
+      "oid": [
+        "types/oid.d.ts"
+      ],
+      "pem": [
+        "types/pem.d.ts"
+      ],
+      "spki": [
+        "types/spki.d.ts"
+      ],
+      "pkcs8": [
+        "types/pkcs8.d.ts"
+      ],
+      "jwk": [
+        "types/jwk.d.ts"
+      ],
+      "json": [
+        "types/json.d.ts"
+      ],
+      "cbor": [
+        "types/cbor_reader.d.ts"
+      ],
+      "cbor-writer": [
+        "types/cbor_writer.d.ts"
+      ],
+      "cose": [
+        "types/cose.d.ts"
+      ],
+      "x509": [
+        "types/x509.d.ts"
+      ],
+      "base": [
+        "types/base.d.ts"
+      ],
+      "bech32": [
+        "types/bech32.d.ts"
+      ],
+      "pbes2": [
+        "types/pbes2.d.ts"
+      ],
+      "ssh": [
+        "types/ssh.d.ts"
+      ],
+      "openpgp": [
+        "types/openpgp.d.ts"
+      ],
+      "openpgp-build": [
+        "types/openpgp_build.d.ts"
+      ],
+      "csr": [
+        "types/csr.d.ts"
+      ],
+      "crl": [
+        "types/crl.d.ts"
+      ],
+      "ocsp": [
+        "types/ocsp.d.ts"
+      ],
+      "ber": [
+        "types/ber_reader.d.ts"
+      ],
+      "pkcs12": [
+        "types/pkcs12.d.ts"
+      ],
+      "jws": [
+        "types/jws.d.ts"
+      ],
+      "fields": [
+        "types/fields.d.ts"
+      ],
+      "cms": [
+        "types/cms.d.ts"
+      ],
+      "tsp": [
+        "types/tsp.d.ts"
+      ],
+      "webauthn": [
+        "types/webauthn.d.ts"
+      ],
+      "jwe": [
+        "types/jwe.d.ts"
+      ],
+      "multiformats": [
+        "types/multiformats.d.ts"
+      ],
+      "params": [
+        "types/params.d.ts"
+      ],
+      "smime": [
+        "types/smime.d.ts"
+      ],
+      "cms-enveloped": [
+        "types/cms_enveloped.d.ts"
+      ],
+      "saml": [
+        "types/saml.d.ts"
+      ],
+      "attrcert": [
+        "types/attrcert.d.ts"
+      ],
+      "crmf": [
+        "types/crmf.d.ts"
+      ],
+      "cmp": [
+        "types/cmp.d.ts"
+      ],
+      "sct": [
+        "types/sct.d.ts"
+      ],
+      "signature": [
+        "types/signature.d.ts"
+      ],
+      "x509-build": [
+        "types/x509_build.d.ts"
+      ],
+      "csr-build": [
+        "types/csr_build.d.ts"
+      ],
+      "cms-build": [
+        "types/cms_build.d.ts"
+      ],
+      "crl-build": [
+        "types/crl_build.d.ts"
+      ],
+      "attrcert-build": [
+        "types/attrcert_build.d.ts"
+      ],
+      "crmf-build": [
+        "types/crmf_build.d.ts"
+      ],
+      "cmp-build": [
+        "types/cmp_build.d.ts"
+      ],
+      "scep": [
+        "types/scep.d.ts"
+      ],
+      "scep-build": [
+        "types/scep_build.d.ts"
+      ],
+      "fido-mds": [
+        "types/fido_mds.d.ts"
+      ],
+      "jwt": [
+        "types/jwt.d.ts"
+      ],
+      "sd-jwt": [
+        "types/sd_jwt.d.ts"
+      ],
+      "cwt": [
+        "types/cwt.d.ts"
+      ],
+      "algorithm": [
+        "types/algorithm.d.ts"
+      ],
+      "ocsp-build": [
+        "types/ocsp_build.d.ts"
+      ],
+      "tsp-build": [
+        "types/tsp_build.d.ts"
+      ],
+      "cms-enveloped-build": [
+        "types/cms_enveloped_build.d.ts"
+      ],
+      "pkcs12-build": [
+        "types/pkcs12_build.d.ts"
+      ],
+      "xml": [
+        "types/xml_reader.d.ts"
+      ]
+    }
+  },
   "exports": {
     ".": {
       "types": "./types/index.d.ts",
@@ -243,7 +421,21 @@
       "default": "./src/xml_reader.js"
     }
   },
+  "files": [
+    "index.js",
+    "types/",
+    "src/",
+    "README.md",
+    "LICENSE"
+  ],
   "sideEffects": false,
+  "engines": {
+    "node": ">=18"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.5",
+    "typescript": "^7.0.2"
+  },
   "keywords": [
     "asn1",
     "der",
@@ -280,19 +472,28 @@
     "der-encoding",
     "crmf"
   ],
+  "author": "colocohen",
   "license": "Apache-2.0",
-  "files": [
-    "index.js",
-    "types/",
-    "src/",
-    "README.md",
-    "LICENSE"
-  ],
-  "engines": {
-    "node": ">=18"
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/colocohen/cryptographic-formats.git"
   },
-  "devDependencies": {
-    "@types/node": "^22.20.5",
-    "typescript": "^7.0.2"
-  }
+  "bugs": {
+    "url": "https://github.com/colocohen/cryptographic-formats/issues"
+  },
+  "homepage": "https://github.com/colocohen/cryptographic-formats#readme",
+  "funding": [
+    {
+      "type": "github",
+      "url": "https://github.com/sponsors/colocohen"
+    },
+    {
+      "type": "opencollective",
+      "url": "https://opencollective.com/colocohen"
+    },
+    {
+      "type": "buymeacoffee",
+      "url": "https://buymeacoffee.com/colocohen"
+    }
+  ]
 }
