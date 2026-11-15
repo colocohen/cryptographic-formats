@@ -1,6 +1,6 @@
 {
   "name": "cryptographic-formats",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Strict parsing and building of cryptographic file formats: X.509, PEM, PKCS#8, PKCS#12, CMS/PKCS#7, OCSP, TSP, CMP, SCEP, JOSE, COSE, WebAuthn, FIDO MDS, OpenSSH, OpenPGP, ASN.1/DER, CBOR. Zero dependencies. Performs no cryptography.",
   "main": "index.js",
   "type": "module",
@@ -428,7 +428,6 @@
     "README.md",
     "LICENSE"
   ],
-  "sideEffects": false,
   "engines": {
     "node": ">=18"
   },
