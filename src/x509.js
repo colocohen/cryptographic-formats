@@ -392,9 +392,7 @@ function distribution_point(r) {
       }
     } else if (wrapper.peek_tag() === 0xA1) {
       var rel = wrapper.read_implicit(1, 0x31);
-      out.relative = F.read_contents
-        ? null
-        : null;
+      out.relative = null;
       // The relative form names a point under the CRL issuer's own name, so
       // it cannot be resolved without that name - kept whole.
       out.relative_raw = rel.buf.subarray(rel.pos, rel.end);
