@@ -44,6 +44,8 @@ import { to_bytes, bytes_equal, int_value, hex } from './commons/bytes.js';
 import { make_fail_here } from './commons/fail.js';
 import { parse_ip, parse_cidr } from './commons/ip.js';
 import { short_name, short_name_oid } from './commons/rfc4514.js';
+import { latin1 } from './commons/decode_text.js';
+import { SHORT_NAMES as OPENSSL_NAMES } from './openssl_names.js';
 
 var fail = make_fail_here('x509');
 
@@ -157,14 +159,6 @@ function build(der, tbs_bytes, tbs, sig_alg, signature) {
       'extensions require version 3, but this certificate says v' + version);
   }
 
-  // Serial numbers are positive integers up to 20 octets. A negative one is
-  // malformed, and since serials identify certificates within an issuer, a
-  // parser that reads it differently from the issuer's records is comparing
-  // the wrong thing.
-  if ((tbs.serialNumber[0] & 0x80) !== 0) {
-    fail('negative-serial', 'the serial number is negative');
-  }
-
   var out = {
     version:       version,
     serial:        tbs.serialNumber,
@@ -189,6 +183,18 @@ function build(der, tbs_bytes, tbs, sig_alg, signature) {
     // certificate.
     warnings:      []
   };
+
+  // ⚠ A NEGATIVE SERIAL IS READ, WITH A WARNING. RFC 5280 4.1.2.2 makes
+  // serials positive and then: "Certificate users SHOULD be prepared to
+  // gracefully handle such certificates." It was refused, and OpenSSL and
+  // Node read it - so a peer's certificate that every TLS stack accepts
+  // could not be shown. Two's complement has one reading: `serial` is the
+  // bytes as encoded, and the warning says the sign bit is set. Comparing
+  // serials compares those bytes, as the issuer's records hold them.
+  if ((tbs.serialNumber[0] & 0x80) !== 0) {
+    out.warnings.push({ code: 'negative-serial',
+      detail: 'the serial number is negative; RFC 5280 4.1.2.2 requires a positive one' });
+  }
 
   ['not_before', 'not_after'].forEach(function (k) {
     if (out.validity[k].profile_violation !== undefined) {
@@ -1163,8 +1169,15 @@ function general_name(r, in_constraint) {
       }
       check_contiguous_mask(got.bytes.subarray(got.bytes.length / 2));
     } else if (got.bytes.length !== 4 && got.bytes.length !== 16) {
-      fail('bad-ip-address',
-        'an iPAddress is 4 or 16 bytes, got ' + got.bytes.length);
+      // ⚠ READ, MARKED, AND MATCHED BY NOTHING. Refused, it took the whole
+      // extension with it - every DNS name beside it - where OpenSSL prints
+      // "IP Address:<invalid>" and goes on. Now: a warning inside an
+      // extension (refused anywhere else, as warn() does), and
+      // `invalid: true`, which hostname_matches and the name-constraint
+      // check treat as an address nothing equals and no subtree can
+      // vouch for (DECISIONS 40).
+      warn('bad-ip-address', 'an iPAddress is 4 or 16 bytes, got ' + got.bytes.length);
+      return { type: 'ip', value: got.bytes, invalid: true };
     }
     return { type: 'ip', value: got.bytes };
   }
@@ -1460,6 +1473,85 @@ function attribute_string(raw) {
   }
 }
 
+// ⚠ ONE ATTRIBUTE VALUE AS TEXT - a name's value, as the parsed name holds
+// it: its whole DER, tag and length included.
+//
+//   x509.attribute_text(cert.subject[0][0].value)
+//     // { type: 'printable', value: 'IL', valid: true }
+//
+// Every string type a name can hold: UTF8String, PrintableString,
+// IA5String, VisibleString, NumericString, BMPString, UniversalString, and
+// the T61String RFC 5280 deprecates. null for a value that is not a string
+// - a SEQUENCE where a string belongs.
+//
+// By default each type's own rule holds: a PrintableString with "*" in it
+// is not one, and is null. { lenient: true } reads as OpenSSL does: an
+// 8-bit string type holding characters its type forbids - the PrintableString
+// CN "*.example.com" real CAs have issued - is its bytes, one character
+// each, and `valid: false` says so. A UTF8String that is not UTF-8, or a
+// BMPString or UniversalString of the wrong length, is null either way:
+// there is no text to give, and OpenSSL refuses such a certificate too.
+//
+// ⚠ T61String IS T.61 BY DEFAULT AND LATIN-1 WHEN LENIENT. The default is
+// the standard's character set (commons/t61.js: 0xE9 is "Ø", and an accent
+// comes before its letter). OpenSSL reads every T61String as Latin-1 (0xE9
+// is "é"), and so does Node; lenient reads as OpenSSL does, so there it is
+// Latin-1. The two agree on ASCII, which is nearly every T61String issued.
+// The 8-bit types: their character-set rule (der_reader's predicates), or
+// none - GraphicString, GeneralString and VideotexString are read as
+// Latin-1 whatever they hold.
+var EIGHT_BIT = {};
+EIGHT_BIT[T.PRINTABLE_STRING] = { type: 'printable', ok: DER.is_printable };
+EIGHT_BIT[T.IA5_STRING] = { type: 'ia5', ok: DER.is_ia5 };
+EIGHT_BIT[T.VISIBLE_STRING] = { type: 'visible', ok: DER.is_visible };
+EIGHT_BIT[T.NUMERIC_STRING] = { type: 'numeric', ok: DER.is_numeric };
+EIGHT_BIT[T.GRAPHIC_STRING] = { type: 'graphic', ok: null };
+EIGHT_BIT[T.GENERAL_STRING] = { type: 'general', ok: null };
+EIGHT_BIT[T.VIDEOTEX_STRING] = { type: 'videotex', ok: null };
+
+// ⚠ NO EXCEPTION ON THE WAY TO A LENIENT READING. It read strictly, caught
+// the refusal and read again - and an exception, with its stack, cost 4-5us
+// where the read costs under one: lenient was twice strict, and lemon-tls's
+// getPeerCertificate twice what it had been (DECISIONS 41). Now the 8-bit
+// types ask der_reader's predicate first; only a UTF8String, BMPString or
+// UniversalString that is not what it says still throws inside - there is
+// no text for those either way, and real certificates do not carry them.
+function attribute_text(value, options) {
+  var raw = to_bytes(value);
+  var lenient = options !== undefined && options !== null && options.lenient === true;
+  var tag = raw.length > 0 ? raw[0] : -1;
+  var eight = EIGHT_BIT[tag];
+
+  if (eight !== undefined || tag === T.T61_STRING) {
+    var bytes = content_of(raw, tag);
+    if (bytes === null) { return null; }
+    if (tag === T.T61_STRING) {
+      if (lenient) { return { type: 't61', value: latin1(bytes), valid: true }; }
+    } else {
+      var ok = eight.ok === null || eight.ok(bytes);
+      if (!ok && !lenient) { return null; }
+      return { type: eight.type, value: latin1(bytes), valid: ok };
+    }
+  }
+
+  try {
+    var s = DER.read(raw, function (r) { return r.read_any_string(); });
+    return { type: s.type, value: s.value, valid: true };
+  } catch (e) {
+    return null;
+  }
+}
+
+// The content of a value that is one primitive TLV with this tag - the
+// reader's checks (DER length, nothing after) - or null.
+function content_of(raw, tag) {
+  try {
+    return DER.read(raw, function (r) { return r._read_value(tag).bytes; });
+  } catch (e) {
+    return null;
+  }
+}
+
 // Leading and trailing whitespace removed, internal whitespace collapsed to
 // one space, case folded - RFC 5280 7.1's rule as OpenSSL applies it
 // (asn1_string_canon): ASCII letters and ASCII whitespace ONLY.
@@ -1674,6 +1766,14 @@ function permit_reason(constraints, name) {
   if (name.type === 'uri' && uri_host(String(name.value)) === null &&
       constraints.permitted.concat(constraints.excluded)
         .some(function (g) { return g.type === 'uri'; })) {
+    return null;
+  }
+
+  // An iPAddress that is not 4 or 16 bytes is no address: under an IP
+  // subtree it is unknown, never "outside the excluded ones".
+  if (name.type === 'ip' && name.invalid === true &&
+      constraints.permitted.concat(constraints.excluded)
+        .some(function (g) { return g.type === 'ip'; })) {
     return null;
   }
 
@@ -1996,7 +2096,7 @@ function hostname_matches(cert, host, options) {
 
   if (ip !== null) {
     for (i = 0; i < names.length; i++) {
-      if (names[i].type === 'ip' && bytes_equal(names[i].value, ip)) {
+      if (names[i].type === 'ip' && names[i].invalid !== true && bytes_equal(names[i].value, ip)) {
         return true;
       }
     }
@@ -2100,7 +2200,37 @@ function common_name(name) {
 // emailAddress= - instead of by OID, and RDNs are separated by ', '. The
 // result is NOT RFC 4514: it will not equal what another system prints for
 // the same name, so it belongs in a log or a UI and never in a comparison.
+//
+// options.style: 'openssl' is the text OpenSSL prints with the flags Node
+// uses for X509Certificate's subject and issuer (X509_NAME_print_ex,
+// XN_FLAG_SEP_MULTILINE | XN_FLAG_FN_SN | ASN1_STRFLGS_ESC_2253 |
+// ESC_CTRL | UTF8_CONVERT): the RDNs in ENCODED order, one per line ('\n'),
+// a multi-valued RDN's values joined with ' + ', OpenSSL's short names
+// (openssl_names.js; any other attribute by dotted OID), values read
+// leniently (attribute_text), RFC 2253 escapes - , + " \ < > ; anywhere,
+// '#' or a space first, a space last - and control characters as \XX.
+// A value that is no string is its whole DER, byte for byte, as OpenSSL
+// prints it. 'openssl-rfc2253' is the line Node prints for a DirName in
+// subjectAltName: the RDNs in REVERSE order joined with ',' - and, as
+// OpenSSL reverses entries rather than RDNs, a multi-valued RDN's values
+// reversed too, joined with '+' - the same short names and escapes but no
+// \XX for control characters, and an attribute OpenSSL has no name for as
+// its OID and '#' with the hex of its DER.
+//
+// Both are checked against node:crypto, field by field (test/x509.test.js).
+// They are for showing what Node and OpenSSL show; never for comparing
+// names - name_matches is.
 function name_to_string(name, options) {
+  if (options && options.style === 'openssl') {
+    return openssl_name(name, false);
+  }
+  if (options && options.style === 'openssl-rfc2253') {
+    return openssl_name(name, true);
+  }
+  if (options && options.style !== undefined) {
+    fail('bad-style', 'name_to_string styles are "openssl" and "openssl-rfc2253", ' +
+      'or none for RFC 4514');
+  }
   var readable = options && options.readable === true;
   var rdns = [];
   var i, j;
@@ -2121,6 +2251,51 @@ function name_to_string(name, options) {
   }
 
   return rdns.join(readable ? ', ' : ',');
+}
+
+function openssl_name(name, rfc2253) {
+  var rdns = [];
+  var i;
+  for (i = 0; i < name.length; i++) {
+    var attrs = name[i].map(function (attr) {
+      var dotted = OID.to_string(attr.type);
+      var label = OPENSSL_NAMES[dotted];
+      if (label === undefined && rfc2253) {
+        return dotted + '=#' + hex(to_bytes(attr.value)).toUpperCase();
+      }
+      var text = attribute_text(attr.value, { lenient: true });
+      var v = text !== null ? text.value : latin1(to_bytes(attr.value));
+      return (label === undefined ? dotted : label) + '=' + openssl_escape(v, !rfc2253);
+    });
+    rdns.push(rfc2253 ? attrs.reverse().join('+') : attrs.join(' + '));
+  }
+  return rfc2253 ? rdns.reverse().join(',') : rdns.join('\n');
+}
+
+// OpenSSL's do_esc_char with ASN1_STRFLGS_ESC_2253, and ESC_CTRL when
+// `ctrl`: characters above 0x7F as they are (UTF8_CONVERT, no ESC_MSB).
+// Nearly every value needs none of it: one test, and back unchanged.
+var NEEDS_ESCAPE = /[,+"\\<>;\x00-\x1f\x7f]|^[# ]| $/;
+
+function openssl_escape(v, ctrl) {
+  if (!NEEDS_ESCAPE.test(v)) {
+    return v;
+  }
+  var out = '';
+  var i;
+  for (i = 0; i < v.length; i++) {
+    var ch = v.charAt(i);
+    var code = v.charCodeAt(i);
+    if (',+"\\<>;'.indexOf(ch) !== -1 || (i === 0 && (ch === '#' || ch === ' ')) ||
+        (i === v.length - 1 && ch === ' ')) {
+      out += '\\' + ch;
+    } else if (ctrl && (code < 0x20 || code === 0x7F)) {
+      out += '\\' + (code < 16 ? '0' : '') + code.toString(16).toUpperCase();
+    } else {
+      out += ch;
+    }
+  }
+  return out;
 }
 
 // The values of one attribute in a name, in the order the name holds them
@@ -2210,6 +2385,7 @@ export {
   has_unhandled_critical,
   common_name,
   name_to_string,
+  attribute_text,
   name_attribute,
 
   // Where to go next. These exist because this library had ocsp.js and

@@ -535,38 +535,71 @@ Reader.prototype.read_utf8_string = function () {
 // Nothing else. An ampersand or an underscore in a PrintableString is a
 // different string type wearing the wrong tag, and X.509 name comparison
 // depends on the type as well as the value.
-var PRINTABLE = /^[A-Za-z0-9 '()+,\-./:=?]*$/;
+//
+// ⚠ THE CHARACTER-SET RULES ARE PREDICATES, read_* AND x509.attribute_text
+// BOTH USE THEM. attribute_text asks first and so never throws for a value
+// it then reads leniently: an exception, with its stack, cost 4-5us - five
+// times the read (DECISIONS 41).
+var PRINTABLE_BYTE = new Uint8Array(256);
+(function () {
+  var i;
+  for (i = 0x41; i <= 0x5A; i++) { PRINTABLE_BYTE[i] = 1; }   // A-Z
+  for (i = 0x61; i <= 0x7A; i++) { PRINTABLE_BYTE[i] = 1; }   // a-z
+  for (i = 0x30; i <= 0x39; i++) { PRINTABLE_BYTE[i] = 1; }   // 0-9
+  var marks = " '()+,-./:=?";
+  for (i = 0; i < marks.length; i++) { PRINTABLE_BYTE[marks.charCodeAt(i)] = 1; }
+}());
+
+function is_printable(bytes) {
+  for (var i = 0; i < bytes.length; i++) {
+    if (PRINTABLE_BYTE[bytes[i]] === 0) { return false; }
+  }
+  return true;
+}
+
+function is_ia5(bytes) {
+  for (var i = 0; i < bytes.length; i++) {
+    if (bytes[i] > 0x7F) { return false; }
+  }
+  return true;
+}
+
+function is_visible(bytes) {
+  for (var i = 0; i < bytes.length; i++) {
+    if (bytes[i] < 0x20 || bytes[i] > 0x7E) { return false; }
+  }
+  return true;
+}
+
+function is_numeric(bytes) {
+  for (var i = 0; i < bytes.length; i++) {
+    if (!(bytes[i] === 0x20 || (bytes[i] >= 0x30 && bytes[i] <= 0x39))) { return false; }
+  }
+  return true;
+}
+
+// The four restricted 8-bit types share one shape: primitive only - a
+// constructed one is BER - then every byte in the type's set, then the
+// bytes as Latin-1.
+function read_restricted(r, tag, ok, label, code, rule) {
+  if (r.peek_tag() === (tag | T.CONSTRUCTED)) {
+    fail(r.pos, 'constructed-string', 'constructed ' + label + ' is BER, not DER');
+  }
+  var v = r._read_value(tag);
+  if (!ok(v.bytes)) {
+    fail(v.start, code, label + ' ' + rule);
+  }
+  return latin1(v.bytes);
+}
 
 Reader.prototype.read_printable_string = function () {
-  if (this.peek_tag() === (T.PRINTABLE_STRING | T.CONSTRUCTED)) {
-    fail(this.pos, 'constructed-string',
-      'constructed PrintableString is BER, not DER');
-  }
-  var v = this._read_value(T.PRINTABLE_STRING);
-  var s = latin1(v.bytes);
-
-  if (!PRINTABLE.test(s)) {
-    fail(v.start, 'bad-printable-string',
-      'PrintableString contains characters outside its character set');
-  }
-  return s;
+  return read_restricted(this, T.PRINTABLE_STRING, is_printable, 'PrintableString',
+    'bad-printable-string', 'contains characters outside its character set');
 };
 
 Reader.prototype.read_ia5_string = function () {
-  if (this.peek_tag() === (T.IA5_STRING | T.CONSTRUCTED)) {
-    fail(this.pos, 'constructed-string',
-      'constructed IA5String is BER, not DER');
-  }
-  var v = this._read_value(T.IA5_STRING);
-  var i;
-
-  for (i = 0; i < v.bytes.length; i++) {
-    if (v.bytes[i] > 0x7F) {
-      fail(v.start, 'bad-ia5-string',
-        'IA5String contains a byte above 0x7F at offset ' + i);
-    }
-  }
-  return latin1(v.bytes);
+  return read_restricted(this, T.IA5_STRING, is_ia5, 'IA5String',
+    'bad-ia5-string', 'contains a byte above 0x7F');
 };
 
 
@@ -624,11 +657,12 @@ Reader.prototype.read_bmp_string = function () {
 // certificates from before that still carry it, so refusing to read one
 // means a subject name that compares unequal to itself.
 //
-// The true T.61 character set is a shifting multi-byte encoding almost
-// nobody implemented correctly; in practice these fields hold Latin-1. That
-// is what is decoded here, and the comment is the warning: a T61String with
-// escape sequences in it will come back wrong, and there is no way to tell
-// from the bytes.
+// Decoded as T.61 (commons/t61.js): its own table for the high half - 0xE9
+// is "Ø" - and accents that come BEFORE their letter; an ISO 2022 escape
+// sequence is refused. OpenSSL reads the same bytes as Latin-1 (0xE9 "é");
+// x509.attribute_text with { lenient: true } does too. The two agree on
+// ASCII. (This said "decoded as Latin-1" after the decoder had become
+// T.61.)
 Reader.prototype.read_t61_string = function () {
   if (this.peek_tag() === (T.T61_STRING | T.CONSTRUCTED)) {
     fail(this.pos, 'constructed-string',
@@ -641,31 +675,14 @@ Reader.prototype.read_t61_string = function () {
 
 // VisibleString is ASCII 0x20 to 0x7E: printable, no control characters.
 Reader.prototype.read_visible_string = function () {
-  var v = this._read_value(T.VISIBLE_STRING);
-  var i;
-
-  for (i = 0; i < v.bytes.length; i++) {
-    if (v.bytes[i] < 0x20 || v.bytes[i] > 0x7E) {
-      fail(v.start, 'bad-visible-string',
-        'VisibleString contains a byte outside 0x20 to 0x7E at offset ' + i);
-    }
-  }
-  return latin1(v.bytes);
+  return read_restricted(this, T.VISIBLE_STRING, is_visible, 'VisibleString',
+    'bad-visible-string', 'contains a byte outside 0x20 to 0x7E');
 };
 
 // NumericString is digits and space, nothing else.
 Reader.prototype.read_numeric_string = function () {
-  var v = this._read_value(T.NUMERIC_STRING);
-  var i;
-
-  for (i = 0; i < v.bytes.length; i++) {
-    var c = v.bytes[i];
-    if (!(c === 0x20 || (c >= 0x30 && c <= 0x39))) {
-      fail(v.start, 'bad-numeric-string',
-        'NumericString allows digits and space only');
-    }
-  }
-  return latin1(v.bytes);
+  return read_restricted(this, T.NUMERIC_STRING, is_numeric, 'NumericString',
+    'bad-numeric-string', 'allows digits and space only');
 };
 
 // UniversalString is UCS-4: four bytes per code point, big endian. Rare, and
@@ -1377,5 +1394,9 @@ function read(input, fn) {
 export {
   reader,
   read,
-  Reader
+  Reader,
+  is_printable,
+  is_ia5,
+  is_visible,
+  is_numeric
 };

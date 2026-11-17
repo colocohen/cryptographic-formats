@@ -43,7 +43,10 @@ var UNIT_CHUNK = 8192;
 
 function decode_utf8(bytes, fail, pos) {
   var pieces = [];
-  var units = new Uint16Array(UNIT_CHUNK);
+  // At most one unit per byte (and two for a 4-byte sequence, which takes
+  // four bytes) - so a short string gets a short buffer: allocating the
+  // whole chunk for a five-letter name cost more than decoding it.
+  var units = new Uint16Array(Math.min(UNIT_CHUNK, bytes.length + 1));
   var n = 0;
   var i = 0;
 
@@ -95,7 +98,7 @@ function decode_utf8(bytes, fail, pos) {
       fail(pos, 'bad-utf8', 'code point above U+10FFFF at offset ' + i);
     }
 
-    if (n + 2 > UNIT_CHUNK) {
+    if (n + 2 > units.length) {
       pieces.push(String.fromCharCode.apply(null, units.subarray(0, n)));
       n = 0;
     }

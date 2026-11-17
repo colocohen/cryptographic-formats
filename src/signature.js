@@ -201,15 +201,43 @@ function raw_to_der(options) {
         : ''));
   }
 
-  var r = strip_leading_zeros(raw.subarray(0, size));
-  var s = strip_leading_zeros(raw.subarray(size));
+  return pair_der(raw.subarray(0, size), raw.subarray(size));
+}
 
-  // ⚠ THE UNSIGNED WRITER, NOT THE INTEGER ONE.
-  //
-  // W.integer on bytes whose top bit is set writes a NEGATIVE integer - one
-  // byte shorter than it should be, and it looks correct. W.unsigned adds
-  // the leading zero that keeps the value positive.
-  return W.to_bytes(W.sequence([W.unsigned(r), W.unsigned(s)]));
+// ⚠ SEQUENCE { INTEGER r, INTEGER s }, WRITTEN DIRECTLY.
+//
+// Both halves are UNSIGNED: leading zeros stripped, and a zero put back
+// when the top bit is set - W.integer would write a negative number one
+// byte short, and it looks correct. This went through the general writer
+// (W.sequence of W.unsigned, arrays and concatenation) and cost 3.8us for
+// 70 bytes - a third of node's whole ECDSA signature, on every TLS
+// handshake lemon-tls makes (DECISIONS 41). The bytes are the same: the
+// test compares them with W's for every width.
+function pair_der(r, s) {
+  var a = strip_leading_zeros(to_bytes(r));
+  var b = strip_leading_zeros(to_bytes(s));
+  var pa = a.length === 0 || (a[0] & 0x80) !== 0 ? 1 : 0;
+  var pb = b.length === 0 || (b[0] & 0x80) !== 0 ? 1 : 0;
+  var la = a.length + pa;
+  var lb = b.length + pb;
+  var ha = W.encode_length(la);
+  var hb = W.encode_length(lb);
+  var inner = 2 + ha.length - 1 + la + 2 + hb.length - 1 + lb;
+  var hs = W.encode_length(inner);
+  var out = new Uint8Array(1 + hs.length + inner);
+  var i = 0;
+  var k;
+  out[i++] = 0x30;
+  for (k = 0; k < hs.length; k++) { out[i++] = hs[k]; }
+  out[i++] = 0x02;
+  for (k = 0; k < ha.length; k++) { out[i++] = ha[k]; }
+  if (pa) { out[i++] = 0; }
+  out.set(a, i); i += a.length;
+  out[i++] = 0x02;
+  for (k = 0; k < hb.length; k++) { out[i++] = hb[k]; }
+  if (pb) { out[i++] = 0; }
+  out.set(b, i);
+  return out;
 }
 
 // ---------------------------------------------------------------------------
@@ -249,10 +277,7 @@ function from_pair(options) {
     fail('bad-options', 'from_pair needs both r and s');
   }
 
-  return W.to_bytes(W.sequence([
-    W.unsigned(strip_leading_zeros(to_bytes(options.r))),
-    W.unsigned(strip_leading_zeros(to_bytes(options.s)))
-  ]));
+  return pair_der(options.r, options.s);
 }
 
 // ---------------------------------------------------------------------------
