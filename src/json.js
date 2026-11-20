@@ -138,12 +138,17 @@ Scanner.prototype.object = function (depth) {
     // Note the guard shape: a plain `seen[key]` would also match inherited
     // properties, so a document with a member called "constructor" or
     // "__proto__" would be reported as a duplicate on its first appearance.
+    //
+    // And the record goes in through put(), as the value does: `seen[key] =
+    // true` with the key "__proto__" sets no property - it tries to change
+    // seen's prototype - so the member's second appearance passed as its
+    // first (DECISIONS 42).
     if (Object.prototype.hasOwnProperty.call(seen, key)) {
       fail(key_at, 'duplicate-member',
         'member "' + key + '" appears more than once; JSON.parse would ' +
         'silently keep the last one');
     }
-    seen[key] = true;
+    put(seen, key, true);
 
     this.skip_space();
     this.expect(':');

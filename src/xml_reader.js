@@ -67,6 +67,17 @@ var PREDEFINED = { lt: '<', gt: '>', amp: '&', quot: '"', apos: "'" };
 // `start` and `end` are offsets into the input string covering the whole
 // element, start tag to end tag. `scope` maps prefix -> namespace URI, with
 // '' for the default namespace.
+//
+// ⚠ A SCOPE IS ITS DECLARATIONS ON TOP OF ITS PARENT'S - A PROTOTYPE CHAIN,
+// NOT A COPY. Each element copied every prefix in scope into a new object,
+// and a 79 KB SAML document took 0.9 GB in Node (found by the Rust port).
+// Now an element that declares nothing shares its parent's scope object,
+// and one that declares something gets Object.create(parent's) holding
+// only its own declarations; the root of the chain has no prototype, so
+// "constructor" or "__proto__" is never a bound prefix by accident. Reading
+// is unchanged - `el.scope.ds`, `'ds' in el.scope`, `for (k in el.scope)` -
+// but Object.keys(el.scope) gives only that element's own declarations
+// (they are also `el.declared`). DECISIONS 42.
 function parse(text) {
   if (typeof text !== 'string') {
     fail('bad-input', 'xml.parse takes a string');
@@ -77,7 +88,8 @@ function parse(text) {
   var doctype = null;
   var stack = [];
   var elements = [];
-  var base_scope = { xml: XML_NS };
+  var base_scope = Object.create(null);
+  base_scope.xml = XML_NS;
 
   function here() {
     return stack.length === 0 ? null : stack[stack.length - 1];
@@ -330,13 +342,14 @@ function read_start_tag(text, pos) {
 }
 
 function make_element(tag, parent_scope, pos) {
-  var scope = {};
-  var k;
+  // Shared until this element declares something; then a link to it.
+  var scope = parent_scope;
 
-  for (k in parent_scope) {
-    if (Object.prototype.hasOwnProperty.call(parent_scope, k)) {
-      scope[k] = parent_scope[k];
+  function bind(prefix, uri) {
+    if (scope === parent_scope) {
+      scope = Object.create(parent_scope);
     }
+    scope[prefix] = uri;
   }
 
   var declared = {};
@@ -347,7 +360,7 @@ function make_element(tag, parent_scope, pos) {
     var a = tag.attrs[i];
 
     if (a.name === 'xmlns') {
-      scope[''] = a.value;
+      bind('', a.value);
       declared[''] = a.value;
     } else if (a.name.substring(0, 6) === 'xmlns:') {
       var p = a.name.substring(6);
@@ -357,7 +370,7 @@ function make_element(tag, parent_scope, pos) {
       if (p === 'xml' && a.value !== XML_NS) {
         fail('malformed', 'the xml prefix is reserved');
       }
-      scope[p] = a.value;
+      bind(p, a.value);
       declared[p] = a.value;
     } else {
       attrs.push(a);
@@ -420,7 +433,7 @@ function resolve(scope, prefix, is_element, name) {
   if (prefix === '') {
     return is_element && scope[''] !== undefined ? scope[''] : '';
   }
-  if (!Object.prototype.hasOwnProperty.call(scope, prefix)) {
+  if (!(prefix in scope)) {
     fail('unbound-prefix', 'the prefix of "' + name + '" is not declared');
   }
   return scope[prefix];
@@ -613,13 +626,15 @@ function render(el, opts, apex, rendered, out) {
     var list = opts.inclusive_prefixes || [];
     for (i = 0; i < list.length; i++) {
       var pfx = list[i] === '#default' ? '' : list[i];
-      if (Object.prototype.hasOwnProperty.call(el.scope, pfx)) {
+      if (pfx in el.scope) {
         wanted[pfx] = true;
       }
     }
   } else {
+    // Every prefix in scope, inherited ones included: the chain has no
+    // Object.prototype at its root, so for..in sees only declarations.
     for (k in el.scope) {
-      if (Object.prototype.hasOwnProperty.call(el.scope, k) && k !== 'xml') {
+      if (k !== 'xml') {
         wanted[k] = true;
       }
     }
