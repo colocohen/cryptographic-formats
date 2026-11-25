@@ -147,6 +147,9 @@ var DOTTED = {
   rsaEncryption:      '1.2.840.113549.1.1.1',
   rsassaPss:          '1.2.840.113549.1.1.10',
   ecPublicKey:        '1.2.840.10045.2.1',
+  // X9.62's field type for explicit ECParameters over GF(p) - the one kind
+  // ec_domain.js reads, and only as a named curve's (DECISIONS 46).
+  primeField:         '1.2.840.10045.1.1',
   ecDH:               '1.3.132.1.12',
   ecMQV:              '1.3.132.1.13',
   X25519:             '1.3.101.110',
@@ -248,6 +251,12 @@ var DOTTED = {
   aes128CBC:          '2.16.840.1.101.3.4.1.2',
   aes192CBC:          '2.16.840.1.101.3.4.1.22',
   aes256CBC:          '2.16.840.1.101.3.4.1.42',
+  // ECB: no IV, and equal blocks encrypt equally. Named because OpenSSL
+  // writes PKCS#8 with it when asked (-v2 aes-256-ecb, or node's export with
+  // cipher 'aes-256-ecb'); pbes2.js reads it there, marked weak.
+  aes128ECB:          '2.16.840.1.101.3.4.1.1',
+  aes192ECB:          '2.16.840.1.101.3.4.1.21',
+  aes256ECB:          '2.16.840.1.101.3.4.1.41',
   des_ede3_cbc:       '1.2.840.113549.3.7',
   // Single DES, OIW's arc: a 56-bit key, broken for decades - and what the
   // micromdm SCEP client still encrypts with by default. Named so it is

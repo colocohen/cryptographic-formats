@@ -448,6 +448,7 @@ function hash_to_der(name) {
 // aes256-ctr) and keep them.
 var NODE_NAMES = {
   aes128CBC: 'aes-128-cbc', aes192CBC: 'aes-192-cbc', aes256CBC: 'aes-256-cbc',
+  aes128ECB: 'aes-128-ecb', aes192ECB: 'aes-192-ecb', aes256ECB: 'aes-256-ecb',
   aes128GCM: 'aes-128-gcm', aes192GCM: 'aes-192-gcm', aes256GCM: 'aes-256-gcm',
   aes128CCM: 'aes-128-ccm', aes192CCM: 'aes-192-ccm', aes256CCM: 'aes-256-ccm',
   aes128Wrap: 'id-aes128-wrap', aes192Wrap: 'id-aes192-wrap',

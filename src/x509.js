@@ -191,6 +191,13 @@ function build(der, tbs_bytes, tbs, sig_alg, signature) {
   // could not be shown. Two's complement has one reading: `serial` is the
   // bytes as encoded, and the warning says the sign bit is set. Comparing
   // serials compares those bytes, as the issuer's records hold them.
+  // A key whose curve is spelled out, as exactly a named curve's
+  // (DECISIONS 46): spki.js read it and said so, and the certificate says it
+  // too - it is in the TBS, and RFC 5480 2.1.1 requires the name.
+  (out.public_key.warnings || []).forEach(function (w) {
+    out.warnings.push({ code: w.code, detail: 'subjectPublicKeyInfo: ' + w.detail });
+  });
+
   if ((tbs.serialNumber[0] & 0x80) !== 0) {
     out.warnings.push({ code: 'negative-serial',
       detail: 'the serial number is negative; RFC 5280 4.1.2.2 requires a positive one' });

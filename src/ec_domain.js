@@ -23,6 +23,8 @@
 
 import * as DER from './der_reader.js';
 import * as OID from './oid.js';
+import { EXPLICIT_CURVES } from './ec_curves.js';
+import { hex } from './commons/bytes.js';
 
 // ---------------------------------------------------------------------------
 // Curve sizes
@@ -53,14 +55,29 @@ var OKP_SIZE = {
 
 // ---------------------------------------------------------------------------
 
-// The parameters of an ecPublicKey are a named curve OID.
+// The parameters of an ecPublicKey: a named curve OID - or, read with a
+// warning, explicit domain parameters that are EXACTLY a named curve's.
 //
-// ⚠ EXPLICIT DOMAIN PARAMETERS ARE REFUSED, here and everywhere else in this
-// library. A curve that arrives with its own equation cannot be checked
-// against a known-good definition, so accepting one means trusting whatever
-// the file says the curve is - and a curve chosen by an attacker is a curve
-// whose discrete log they already know.
+// ⚠ EXPLICIT DOMAIN PARAMETERS ARE ACCEPTED ONLY AS A KNOWN CURVE
+// (DECISIONS 46). A curve that arrives with its own equation is a curve
+// chosen by whoever wrote the file - and one chosen by an attacker is one
+// whose discrete log they already know. CurveBall (CVE-2020-0601) was
+// exactly that: P-384's equation with the attacker's own generator, and a
+// verifier that compared only the equation.
+//
+// So every value is compared - the prime, a, b, the generator, the order,
+// the cofactor, and the seed when one is given - against the named curves'
+// in ec_curves.js, and only a complete match is read, as that curve's name.
+// The caller sees `explicit_parameters: true` and a warning, because the
+// encoding is still not the one RFC 5480 2.1.1 requires (namedCurve MUST be
+// used in PKIX). Anything else - a changed generator, an unknown prime, a
+// characteristic-two field - is refused as before: no curve is invented,
+// and none is computed with.
 function curve_from_parameters(params, fail) {
+  if (params.length > 0 && params[0] === 0x30) {
+    return explicit_curve(params, fail);
+  }
+
   var r = DER.reader(params);
   var oid_bytes;
 
@@ -69,8 +86,8 @@ function curve_from_parameters(params, fail) {
     r.expect_end();
   } catch (e) {
     fail('explicit-curve-parameters',
-      'EC parameters are not a named curve; explicit domain parameters are ' +
-      'refused because the domain cannot be checked against a known curve');
+      'EC parameters are neither a named curve nor explicit domain ' +
+      'parameters (implicitCA is refused: the curve would come from elsewhere)');
   }
 
   var name = OID.name_of(oid_bytes);
@@ -81,6 +98,116 @@ function curve_from_parameters(params, fail) {
   }
 
   return name;
+}
+
+// Whether parameters spell the curve out - the caller's cue for the warning.
+function is_explicit(params) {
+  return params !== undefined && params !== null && params.length > 0 &&
+    params[0] === 0x30;
+}
+
+// What a reader attaches to a key whose curve was spelled out: the flag, and
+// the warning in the shape x509's `warnings` have. One place, for spki,
+// pkcs8 and SEC 1.
+function mark_explicit(out, curve) {
+  out.explicit_parameters = true;
+  out.warnings = [{ code: 'explicit-curve-parameters',
+    detail: 'the curve is given as explicit domain parameters, which match ' +
+      curve + ' exactly; RFC 5480 2.1.1 requires the named curve, and a ' +
+      'writer of this key writes the name' }];
+}
+
+
+// A field element or INTEGER magnitude by value: leading zeros dropped.
+function value_of(b) {
+  return hex(b).replace(/^(00)+(?=..)/, '');
+}
+
+//   ECParameters ::= SEQUENCE {
+//        version   INTEGER { ecpVer1(1) },
+//        fieldID   SEQUENCE { fieldType OBJECT IDENTIFIER, parameters ANY },
+//        curve     SEQUENCE { a OCTET STRING, b OCTET STRING,
+//                             seed BIT STRING OPTIONAL },
+//        base      OCTET STRING,         -- the generator, SEC 1 encoded
+//        order     INTEGER,
+//        cofactor  INTEGER OPTIONAL }
+function explicit_curve(params, fail) {
+  function refuse(why) {
+    fail('explicit-curve-parameters', 'explicit EC domain parameters are ' +
+      'read only when they are exactly a named curve\'s, and ' + why);
+  }
+
+  var d;
+  try {
+    d = DER.read(params, function (r) {
+      var seq = r.read_sequence();
+      var version = seq.read_unsigned();
+      var field = seq.read_sequence();
+      var field_type = field.read_oid();
+      var out = { version: value_of(version) };
+      if (OID.name_of(field_type) !== 'primeField') {
+        refuse('the field is not a prime field');
+      }
+      out.p = value_of(field.read_unsigned());
+      field.expect_end();
+      var curve = seq.read_sequence();
+      out.a = value_of(curve.read_octet_string());
+      out.b = value_of(curve.read_octet_string());
+      out.seed = null;
+      if (curve.remaining() > 0) {
+        var seed = curve.read_bit_string();
+        out.seed = seed.unused === 0 ? hex(seed.bytes) : '?';
+      }
+      curve.expect_end();
+      out.g = hex(seq.read_octet_string());
+      out.n = value_of(seq.read_unsigned());
+      out.h = seq.remaining() > 0 ? value_of(seq.read_unsigned()) : null;
+      seq.expect_end();
+      return out;
+    });
+  } catch (e) {
+    if (e.code === 'explicit-curve-parameters') { throw e; }
+    refuse('these do not parse as ECParameters (' + e.message + ')');
+  }
+
+  if (d.version !== '01') {
+    refuse('version ' + d.version + ' is not ecpVer1');
+  }
+  var name;
+  var same_prime = null;
+  for (name in EXPLICIT_CURVES) {
+    if (!Object.prototype.hasOwnProperty.call(EXPLICIT_CURVES, name)) {
+      continue;
+    }
+    var c = EXPLICIT_CURVES[name];
+    if (c.p !== d.p || c.a !== d.a || c.b !== d.b) {
+      continue;
+    }
+    same_prime = name;
+    if (c.n === d.n && (d.h === null || d.h === c.h) &&
+        base_matches(c.g, d.g) &&
+        (d.seed === null || d.seed === (c.seed || null))) {
+      return name;
+    }
+  }
+
+  refuse(same_prime === null
+    ? 'this curve\'s equation is no named curve\'s'
+    : 'these have ' + same_prime + '\'s equation with a different generator, ' +
+      'order, cofactor or seed - the CurveBall shape');
+}
+
+// The generator as given against the known one: uncompressed byte for byte,
+// or compressed as the known point compresses (02 for an even y, 03 for odd)
+// - the same point either way, and telling them apart needs no arithmetic.
+function base_matches(known, given) {
+  if (given === known) {
+    return true;
+  }
+  var size = (known.length - 2) / 4;               // hex digits per coordinate
+  var x = known.substring(2, 2 + size * 2);
+  var y_odd = parseInt(known.charAt(known.length - 1), 16) & 1;
+  return given === (y_odd ? '03' : '02') + x;
 }
 
 // A SEC 1 point is one prefix byte plus one or two field elements.
@@ -179,8 +306,8 @@ function check_okp_length(algorithm, key, fail, what) {
 //   null       rsaEncryption: present and NULL (RFC 4055 - absent is a
 //              second encoding of the same key)
 //   absent     the RFC 8410 algorithms: no parameters at all, not NULL
-//   required   DSA: p, q and g, read and handed over - there is no registry
-//              to check them against
+//   required   DSA: p, q and g; PKCS#3 DH: p and g - read and handed over,
+//              there is no registry to check them against
 // ⚠ THE POST-QUANTUM PARAMETER SETS, BY SIZE.
 //
 // Each OID names one parameter set, and each set fixes every length: the
@@ -228,6 +355,11 @@ var KEY_PARAMS = {
   X25519:        'absent',
   X448:          'absent',
   dsa:           'required',
+  // PKCS#3 DH (DECISIONS 44): DHParameter { p, g, privateValueLength? },
+  // what node's generateKeyPairSync('dh') and `openssl genpkey -algorithm
+  // DH` write. X9.42's dhpublicnumber (OpenSSL's DHX) is another OID and
+  // another parameter shape, and stays unknown.
+  dhKeyAgreement: 'required',
   // ⚠ RSA-PSS KEYS (RFC 4055 3.1): an RSA key restricted to PSS - what
   // `openssl genpkey -algorithm RSA-PSS` makes. Parameters ABSENT allow any
   // PSS signature; present, they are RSASSA-PSS-params, the limits a
@@ -329,6 +461,8 @@ export {
   identify_key_algorithm,
   read_key_parameters,
   curve_from_parameters,
+  is_explicit,
+  mark_explicit,
   check_point_length,
   check_scalar_length,
   check_okp_length,

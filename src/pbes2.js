@@ -100,6 +100,31 @@ var CIPHERS = {
   des_ede3_cbc: { key: 24, iv: 8 }
 };
 
+// ⚠ ECB, FOR PKCS#8 ONLY, AND MARKED WEAK (DECISIONS 43).
+//
+// OpenSSL writes an EncryptedPrivateKeyInfo with AES-ECB when asked to -
+// `openssl pkcs8 -topk8 -v2 aes-256-ecb`, or node's
+// export({ type: 'pkcs8', cipher: 'aes-256-ecb' }) - and reads it back. ECB
+// has no IV and encrypts equal blocks equally, so the key's structure shows
+// through; it is still the password that protects the key, and refusing to
+// read a key somebody already has helps nobody. So: read, with `weak` set;
+// written only with { allow_weak: true }.
+//
+// Kept out of CIPHERS on purpose. A CMS password recipient (RFC 3211) wraps
+// with CBC by definition and PKCS#12 never carries ECB, so the two other
+// readers of this module do not accept it - only pkcs8.js asks for it.
+//
+// The parameters: OpenSSL writes an EMPTY OCTET STRING (the IV it does not
+// have), NIST's registration leaves them absent, and some writers put NULL.
+// All three are the same statement - no IV - and are read; the empty OCTET
+// STRING is what is written, so a key from here compares byte for byte with
+// OpenSSL's.
+var ECB_CIPHERS = {
+  aes128ECB: { key: 16, iv: 0 },
+  aes192ECB: { key: 24, iv: 0 },
+  aes256ECB: { key: 32, iv: 0 }
+};
+
 // ⚠ ALL FIVE RFC 8018 B.1 NAMES. The table had SHA-1 and SHA-256, so a key
 // written with `openssl pkcs8 -v2prf hmacWithSHA512` was refused here - and
 // pkcs12.js, which kept its own smaller copy of this table, quietly read it
@@ -162,8 +187,17 @@ function read_kdf(alg, options) {
   };
 }
 
-function read_scheme(alg) {
+// `allow_ecb` is pkcs8.js's: see ECB_CIPHERS.
+function read_scheme(alg, allow_ecb) {
   var name = OID.name_of(alg.algorithm);
+
+  if (name !== null && ECB_CIPHERS[name] !== undefined) {
+    if (allow_ecb !== true) {
+      fail('unsupported-cipher', name + ' is read only in a PKCS#8 key; ' +
+        'here it would be an ECB key wrap');
+    }
+    return read_ecb(name, alg.parameters);
+  }
 
   if (name === null || CIPHERS[name] === undefined) {
     fail('unsupported-cipher',
@@ -188,7 +222,30 @@ function read_scheme(alg) {
   return {
     cipher:     name,
     key_length: c.key,
-    iv:         iv
+    iv:         iv,
+    weak:       false
+  };
+}
+
+function read_ecb(name, parameters) {
+  if (parameters !== undefined) {
+    var none = DER.read(parameters, function (r) {
+      var tag = r.peek_tag();
+      if (tag === 0x05) {
+        r.read_null();
+        return true;
+      }
+      return r.read_octet_string().length === 0;
+    });
+    if (!none) {
+      fail('bad-iv-length', name + ' takes no IV, but its parameters carry one');
+    }
+  }
+  return {
+    cipher:     name,
+    key_length: ECB_CIPHERS[name].key,
+    iv:         null,
+    weak:       true
   };
 }
 
@@ -211,12 +268,21 @@ function is_weak(p) {
 // safe written by pkcs12_build name their parameters identically.
 //
 // parts: { prf, salt, iterations, cipher, iv, key_length? }
-function scheme_to_der(parts) {
+//
+// `allow_ecb` is pkcs8.js's, and with it an ECB cipher is written when
+// parts.allow_weak is true - see ECB_CIPHERS.
+function scheme_to_der(parts, allow_ecb) {
   if (!parts || typeof parts !== 'object') {
     fail('bad-input', 'the PBES2 parameters are required');
   }
 
-  var c = cipher_entry(parts.cipher);
+  var c = cipher_entry(parts.cipher, allow_ecb === true);
+
+  if (c.ecb && parts.allow_weak !== true) {
+    fail('weak-cipher', c.oid_name + ' encrypts equal blocks equally and ' +
+      'takes no IV; aes256CBC does neither. Pass { allow_weak: true } to ' +
+      'write it anyway');
+  }
 
   // keyLength is written only when it is not implied by the cipher, matching
   // what OpenSSL emits - so a key written here and one written there compare
@@ -231,7 +297,9 @@ function scheme_to_der(parts) {
     W.oid(OID.by_name('pbes2')),
     W.sequence([
       pbkdf2_to_der(parts),
-      cipher_to_der(parts.cipher, parts.iv)
+      c.ecb ? W.sequence([W.oid(OID.by_name(c.oid_name)),
+                          W.octet_string(new Uint8Array(0))])
+            : cipher_to_der(parts.cipher, parts.iv)
     ])
   ]);
 }
@@ -300,9 +368,12 @@ function cipher_to_der(cipher, iv) {
                      W.octet_string(to_bytes(iv))]);
 }
 
-function cipher_entry(cipher) {
+function cipher_entry(cipher, allow_ecb) {
   var name = canonical_name(cipher);
 
+  if (allow_ecb === true && ECB_CIPHERS[name] !== undefined) {
+    return { oid_name: name, entry: ECB_CIPHERS[name], ecb: true };
+  }
   if (CIPHERS[name] === undefined) {
     fail('unsupported-cipher', 'cannot write ' + cipher + '; PBES2 here is ' +
       Object.keys(CIPHERS).join(', '));
@@ -322,5 +393,6 @@ export {
   read_scheme as read_cipher,
   is_weak,
   CIPHERS,
+  ECB_CIPHERS,
   PRFS
 };

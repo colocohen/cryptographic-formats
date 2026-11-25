@@ -29,10 +29,12 @@ import * as OID from './oid.js';
 import * as PBES2 from './pbes2.js';
 import { key_algorithm_to_der } from './spki.js';
 import { identify_key_algorithm, read_key_parameters, is_curve,
-  curve_from_parameters, check_point_length, check_scalar_length,
+  curve_from_parameters, is_explicit, mark_explicit,
+  check_point_length, check_scalar_length,
   check_okp_length, CURVE_SIZE, OKP_SIZE, PQ_KEYS } from './ec_domain.js';
 
 import { read_pss_params } from './algorithm.js';
+import { dh_key_group } from './params.js';
 import { to_bytes, int_value, bit_length, bytes_equal } from './commons/bytes.js';
 import { make_fail_here } from './commons/fail.js';
 
@@ -69,7 +71,9 @@ F.define('PrivateKeyInfo', [
 F.define('ECPrivateKey', [
   { name: 'version',    type: 'unsigned' },
   { name: 'privateKey', type: 'octet_string' },
-  { name: 'parameters', tag: 0xA0, mode: 'explicit', type: 'oid',
+  // Raw: a named curve's OID, or explicit ECParameters that are exactly a
+  // named curve's - ec_domain.curve_from_parameters decides (DECISIONS 46).
+  { name: 'parameters', tag: 0xA0, mode: 'explicit', type: 'raw',
     optional: true },
   { name: 'publicKey',  tag: 0xA1, mode: 'explicit', type: 'bit_string',
     optional: true }
@@ -119,7 +123,10 @@ var FAMILY = {
   //
   // Found by testing against files openssl produces rather than against the
   // fixture set, which had no DSA key because nothing generated one.
-  dsa:           { params: 'required', inner: 'integer' }
+  dsa:           { params: 'required', inner: 'integer' },
+  // PKCS#3 DH has the same shape - a bare INTEGER x, the group in the
+  // parameters - with DHParameter { p, g, l? } as the group (DECISIONS 44).
+  dhKeyAgreement: { params: 'required', inner: 'integer' }
 };
 // The post-quantum families, from the size table ec_domain shares with spki.
 //
@@ -180,6 +187,10 @@ function from_der(input) {
     der:       to_bytes(input)
   };
 
+  if (curve !== null && is_explicit(params)) {
+    mark_explicit(out, curve);
+  }
+
   // The inner structure. This is the layer the harness helper skipped.
   if (family.inner === 'raw') {
     read_raw_scalar(out, family, parsed.privateKey);
@@ -192,7 +203,14 @@ function from_der(input) {
   } else if (family.inner === 'pkcs1') {
     read_pkcs1(out, parsed.privateKey);
   } else if (family.inner === 'integer') {
-    read_dsa(out, parsed.privateKey, params);
+    out.scalar = DER.read(parsed.privateKey, function (r) {
+      return r.read_unsigned();
+    });
+    if (alg_name === 'dsa') {
+      read_dsa(out, params);
+    } else {
+      read_dh(out, params);
+    }
   }
 
   // An RSA-PSS key's limits, as spki.js returns them - and the parameter
@@ -360,11 +378,14 @@ function read_sec1(out, curve, inner) {
   // wrapper claiming P-256 around a SEC1 body claiming P-384 is a key with no
   // single answer to which curve it is on.
   if (ec.parameters !== undefined) {
-    var inner_curve = OID.name_of(ec.parameters);
+    var inner_curve = curve_from_parameters(ec.parameters, fail);
     if (inner_curve !== curve) {
       fail('curve-mismatch',
         'PKCS#8 says ' + curve + ' but the inner ECPrivateKey says ' +
-        (inner_curve === null ? OID.describe(ec.parameters) : inner_curve));
+        inner_curve);
+    }
+    if (is_explicit(ec.parameters)) {
+      mark_explicit(out, curve);
     }
   }
 
@@ -395,15 +416,7 @@ function read_sec1(out, curve, inner) {
 // dispatch entirely and reported `unrecognised-der`.
 //
 // Read and never written, the same position DSA gets everywhere else here.
-function read_dsa(out, inner, params) {
-  out.scalar = DER.read(inner, function (r) {
-    return r.read_unsigned();
-  });
-
-  if (params === undefined) {
-    return;
-  }
-
+function read_dsa(out, params) {
   var domain = DER.read(params, function (r) {
     var seq = r.read_sequence();
     var p = seq.read_unsigned();
@@ -423,6 +436,16 @@ function read_dsa(out, inner, params) {
   out.subgroup_bits = bit_length(domain.q);
 }
 
+
+// PKCS#3 DH: the INTEGER x was read by the caller; the group is
+// DHParameter, read by params.js as an `openssl dhparam` file is.
+// Read and never written, as DSA is.
+function read_dh(out, params) {
+  var g = dh_key_group(params);
+  out.domain = g.domain;
+  out.bits = g.bits;
+  out.weak = g.weak;
+}
 
 function read_pkcs1(out, inner) {
   var rsa = DER.read(inner, function (r) {
@@ -473,9 +496,9 @@ function sec1_from_der(input) {
       'distinguish secp256r1 from secp256k1 or brainpoolP256r1');
   }
 
-  var curve = OID.name_of(ec.parameters);
-  if (curve === null || !is_curve(curve)) {
-    fail('unknown-curve', 'unrecognised curve ' + OID.describe(ec.parameters));
+  var curve = curve_from_parameters(ec.parameters, fail);
+  if (!is_curve(curve)) {
+    fail('unknown-curve', 'unrecognised curve ' + curve);
   }
 
   var size = CURVE_SIZE[curve];
@@ -493,6 +516,10 @@ function sec1_from_der(input) {
     point:     null,
     der:       to_bytes(input)
   };
+
+  if (is_explicit(ec.parameters)) {
+    mark_explicit(out, curve);
+  }
 
   if (ec.publicKey !== undefined) {
     if (ec.publicKey.unused !== 0) {
@@ -697,7 +724,7 @@ function encrypted_from_der(input, options) {
   });
 
   var kdf = PBES2.read_pbkdf2(p.kdf, options);
-  var enc = PBES2.read_cipher(p.scheme);
+  var enc = PBES2.read_cipher(p.scheme, true);
 
   // RFC 8018 A.4: keyLength is OPTIONAL, and when absent the length comes
   // from the encryption scheme. A caller who defaulted to the PRF's output
@@ -721,8 +748,9 @@ function encrypted_from_der(input, options) {
     iv:         enc.iv,
     data:       outer.data,
     // read_kdf computed this and params() dropped it - the weakness check
-    // ran and its answer went nowhere.
-    weak:       kdf.weak
+    // ran and its answer went nowhere. An ECB cipher is weak too, and `iv`
+    // is null for it (DECISIONS 43).
+    weak:       kdf.weak || enc.weak
   };
 }
 
@@ -737,7 +765,7 @@ function encrypted_to_der(parts) {
   }
 
   return W.to_bytes(W.sequence([
-    PBES2.scheme_to_der(parts),
+    PBES2.scheme_to_der(parts, true),
     W.octet_string(parts.data)
   ]));
 }

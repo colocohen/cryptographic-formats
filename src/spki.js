@@ -34,10 +34,12 @@ import * as F from './fields.js';
 import './pkix.js';
 import * as OID from './oid.js';
 import { check_point_length, CURVE_SIZE, OKP_SIZE, KEY_PARAMS, is_curve,
+  is_explicit, mark_explicit,
   raw_public_size, identify_key_algorithm, read_key_parameters } from './ec_domain.js';
 
 import { to_bytes } from './commons/bytes.js';
 import { read_pss_params } from './algorithm.js';
+import { dh_key_group } from './params.js';
 import { make_fail_here } from './commons/fail.js';
 
 var fail = make_fail_here('spki');
@@ -148,6 +150,24 @@ function from_der(input) {
       var e = seq.read_unsigned();
       seq.expect_end();
       return { n: n, e: e };
+    });
+  }
+
+  // Explicit domain parameters that are exactly a named curve's (DECISIONS
+  // 46): read as that curve, flagged, warned.
+  if (curve !== null && is_explicit(params)) {
+    mark_explicit(out, curve);
+  }
+
+  // A PKCS#3 DH key (DECISIONS 44): the group as pkcs8.js reports it, and
+  // the public value y - the BIT STRING is its INTEGER.
+  if (alg_name === 'dhKeyAgreement') {
+    var group = dh_key_group(params);
+    out.domain = group.domain;
+    out.bits = group.bits;
+    out.weak = group.weak;
+    out.public_value = DER.read(parsed.key.bytes, function (r) {
+      return r.read_unsigned();
     });
   }
 

@@ -30,6 +30,7 @@ import * as DER from './der_reader.js';
 import * as W from './der_writer.js';
 import * as PEM from './pem.js';
 import * as OID from './oid.js';
+import { curve_from_parameters, mark_explicit } from './ec_domain.js';
 
 import { make_fail_here } from './commons/fail.js';
 import { to_bytes, int_value, bit_length } from './commons/bytes.js';
@@ -106,6 +107,18 @@ function dh_from_der(input) {
   });
 }
 
+// The group of a PKCS#3 DH key (SPKI or PKCS#8), as pkcs8.js reports a DSA
+// key's: domain, and the bit length of p with its weak judgement. The same
+// reader as a `openssl dhparam` file, because it is the same DHParameter.
+function dh_key_group(params) {
+  var d = dh_from_der(params);
+  return {
+    domain: { p: d.prime, g: d.base, private_length: d.private_length },
+    bits:   d.bits,
+    weak:   d.weak
+  };
+}
+
 function dh_from_pem(text) {
   return dh_from_der(PEM.decode_one(text, 'DH PARAMETERS').der);
 }
@@ -142,10 +155,12 @@ function dh_to_der(parts) {
 // ---------------------------------------------------------------------------
 
 // An `openssl ecparam` file is normally just the curve's OID - the CHOICE's
-// namedCurve arm. The other arms carry the curve's equation, and this library
-// refuses those everywhere for the same reason: a curve given by its
-// coefficients cannot be checked against a known-good definition, so
-// accepting one means trusting whatever the file says the curve is.
+// namedCurve arm. The explicit arm carries the curve's equation, and is read
+// only when every value is a named curve's - ec_domain.js's rule, the same
+// as for a key (DECISIONS 46) - as that curve, with `explicit_parameters`
+// and a warning. Any other equation is refused: accepting it would mean
+// trusting whatever the file says the curve is. The refusal keeps this
+// module's code, `explicit-parameters`.
 function ec_from_der(input) {
   var bytes = to_bytes(input);
 
@@ -153,11 +168,18 @@ function ec_from_der(input) {
     var tag = r.peek_tag();
 
     if (tag === 0x30) {
-      fail('explicit-parameters',
-        'these are EXPLICIT domain parameters - the curve given by its own ' +
-        'equation. A curve that arrives with its own definition cannot be ' +
-        'checked against a known-good one, so it is refused here as it is ' +
-        'everywhere else in this library.');
+      var params = r.capture();
+      var out = {
+        curve: curve_from_parameters(params, function (code, detail) {
+          fail(code === 'explicit-curve-parameters' ? 'explicit-parameters'
+            : code, detail);
+        }),
+        oid: null,
+        der: bytes
+      };
+      out.oid = OID.by_name(out.curve);
+      mark_explicit(out, out.curve);
+      return out;
     }
     if (tag === 0x05) {
       // implicitlyCA: the curve is whatever the CA used, stated nowhere.
@@ -197,6 +219,7 @@ function ec_to_pem(curve) {
 
 export {
   dh_from_der,
+  dh_key_group,
   dh_from_pem,
   dh_to_der,
   ec_from_der,
